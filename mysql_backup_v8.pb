@@ -259,11 +259,26 @@ Procedure.s CreateSecureDefaultsFile(Host.s, Port.s, User.s, Password.s)
   EndIf
   CloseFile(hFile)
 
-  ; 内容已落盘,再收紧权限(用户名加引号防止注入)
-  Prog = RunProgram("cmd.exe",
-    "/c icacls " + #DQUOTE$ + FilePath + #DQUOTE$ +
-    " /inheritance:r /grant:r " + #DQUOTE$ + "%USERNAME%" + #DQUOTE$ + ":F",
-    "", #PB_Program_Open | #PB_Program_Hide)
+  ; 内容已落盘,再收紧权限
+  ; 服务模式下以 SYSTEM 运行，%USERNAME% 展开不稳定(错误1332)
+  ; 使用 Administrators 组 SID(不受语言环境影响) + 当前用户
+  Protected UserName.s = ""
+  Prog = RunProgram("cmd.exe", "/c echo %USERNAME%", "", #PB_Program_Open | #PB_Program_Hide)
+  If Prog
+    UserName = ReadProgramString(Prog)
+    WaitProgram(Prog)
+    CloseProgram(Prog)
+  EndIf
+  UserName = Trim(UserName)
+
+  ; 构造 icacls 命令: 管理员组(F) + 当前用户(若可获取)
+  Protected IcaclsArgs.s = "/c icacls " + #DQUOTE$ + FilePath + #DQUOTE$ +
+    " /inheritance:r /grant:r *S-1-5-32-544:F"
+  If UserName <> ""
+    IcaclsArgs + " /grant:r " + #DQUOTE$ + UserName + #DQUOTE$ + ":F"
+  EndIf
+
+  Prog = RunProgram("cmd.exe", IcaclsArgs, "", #PB_Program_Open | #PB_Program_Hide)
   If Prog
     WaitProgram(Prog)
     If ProgramExitCode(Prog) <> 0
@@ -1084,6 +1099,9 @@ End
 ;   [FIX-50] LoadTrayIcon 简化：直接返回 HICON 传递给托盘 API，消除黑色方块问题
 ;
 ; IDE Options = PureBasic 6.40 (Windows - x64)
+; CursorPosition = 256
+; FirstLine = 195
+; Folding = PBDw-
 ; Optimizer
 ; EnableThread
 ; EnableXP
